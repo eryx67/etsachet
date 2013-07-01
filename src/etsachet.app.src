@@ -1,0 +1,12 @@
+{application, etsachet,
+ [
+  {description, "ETS based cache."},
+  {vsn, "1.0.0"},
+  {registered, []},
+  {modules, [etsachet]},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
