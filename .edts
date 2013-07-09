@@ -1,0 +1,4 @@
+:name "etsachet"
+:node-sname "etsachet_edit"
+:lib-dirs '("deps")
+;; :start-command "erl -sname dhtor_edit"
