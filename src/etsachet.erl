@@ -22,7 +22,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(DEFAULT_TTL, 356000 * 86400).
--define(STATE_MOD(CN), list_to_atom(atom_to_list(CN) ++ "_config")).
+-define(STATE_MOD(CN), list_to_atom(atom_to_list(CN) ++ "_config$")).
 
 -ifdef(TEST).
 -define(EXPIRE_SIZE_THRESHOLD, 1).
