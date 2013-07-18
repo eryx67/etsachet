@@ -112,6 +112,13 @@ init({Name, MaxSize}) ->
     CacheState = #cache_state{name=Name, data_store=DataTbl, expire_store=ExpTbl,
                               max_size=MaxSize},
     etsachet_gen_config:generate(?STATE_MOD(Name), CacheState),
+    case code:which(hipe) of
+        non_existing ->
+            ok;
+        _ ->
+            [hipe:c(?STATE_MOD(Name), [o3]) || code:is_module_native(?MODULE)]
+    end,
+
     {ok, #state{cache_state=CacheState}}.
 
 handle_call({expire_size}, _From, S=#state{cleaner_pid=undefined, cache_state=CS}) ->
@@ -180,9 +187,9 @@ get_data(Key, Default, _S=#cache_state{data_store=DS,
     end.
 
 put_data(Key, Value, ExpireAt, S=#cache_state{name=Name,
-                                        max_size=MS,
-                                        data_store=DS,
-                                        expire_store=ES}) ->
+                                              max_size=MS,
+                                              data_store=DS,
+                                              expire_store=ES}) ->
     Data = {Key, Value, ExpireAt},
     case ets:insert_new(DS, Data) of
         false ->
