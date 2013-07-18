@@ -111,12 +111,13 @@ init({Name, MaxSize}) ->
 
     CacheState = #cache_state{name=Name, data_store=DataTbl, expire_store=ExpTbl,
                               max_size=MaxSize},
-    etsachet_gen_config:generate(?STATE_MOD(Name), CacheState),
+    ConfMod = ?STATE_MOD(Name),
+    {ok, ConfMod, Bin} = etsachet_gen_config:generate(ConfMod, CacheState),
     case code:which(hipe) of
         non_existing ->
             ok;
         _ ->
-            [hipe:c(?STATE_MOD(Name), [o3]) || code:is_module_native(?MODULE)]
+            [hipe:compile(ConfMod, [], Bin, [o3, load]) || code:is_module_native(?MODULE)]
     end,
 
     {ok, #state{cache_state=CacheState}}.

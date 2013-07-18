@@ -19,5 +19,6 @@ generate(ModName, Config) ->
     ConfigFClause = erl_syntax:clause([],[],[erl_syntax:abstract(ConfigBody)]),
     ConfigF = erl_syntax:function(erl_syntax:atom(config),[ConfigFClause]),
     ConfigFForm = erl_syntax:revert(ConfigF),
-    {ok, Mod, Bin} = compile:forms([ModForm, ExportForm, ConfigFForm]),
-    {module, ModName} = code:load_binary(Mod, [], Bin).
+    Ret = {ok, ModName, Bin} = compile:forms([ModForm, ExportForm, ConfigFForm]),
+    {module, ModName} = code:load_binary(ModName, [], Bin),
+    Ret.
