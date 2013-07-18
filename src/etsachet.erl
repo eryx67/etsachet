@@ -22,7 +22,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(DEFAULT_TTL, 356000 * 86400).
--define(STATE_KEY(CN), {'etsachet:state', CN}).
+-define(STATE_MOD(CN), list_to_atom(atom_to_list(CN) ++ "_config")).
 
 -ifdef(TEST).
 -define(EXPIRE_SIZE_THRESHOLD, 1).
@@ -40,7 +40,7 @@
 start_link(CacheName) when is_atom(CacheName) ->
     start_link(CacheName, undefined).
 
-%% @doc Start a LRU cache with a defined maximum size.
+%% @doc Start a cache with a defined maximum size.
 -spec start_link(atom(), integer()) -> {ok, pid()} | ignore | {error, term()}.
 start_link(CacheName, MaxSize) when is_atom(CacheName)
                                     andalso (MaxSize =:= undefined
@@ -111,6 +111,7 @@ init({Name, MaxSize}) ->
 
     CacheState = #cache_state{name=Name, data_store=DataTbl, expire_store=ExpTbl,
                               max_size=MaxSize},
+    etsachet_gen_config:generate(?STATE_MOD(Name), CacheState),
     {ok, #state{cache_state=CacheState}}.
 
 handle_call({expire_size}, _From, S=#state{cleaner_pid=undefined, cache_state=CS}) ->
@@ -140,7 +141,8 @@ handle_info({'DOWN', _, _, Pid, Reason}, S=#state{cleaner_pid=Pid}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-terminate(_, _State) ->
+terminate(_, _S=#state{cache_state=#cache_state{name=N}}) ->
+    code:purge(?STATE_MOD(N)),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -160,14 +162,8 @@ spawn_cleaner(#cache_state{data_store=DS, expire_store=ES}) ->
     Pid.
 
 find_state(CacheName) ->
-    case get(?STATE_KEY(CacheName)) of
-        undefined ->
-            {ok, Ret} = gen_server:call(CacheName, {cache_state}),
-            put(?STATE_KEY(CacheName), Ret),
-            Ret;
-        Ret ->
-            Ret
-    end.
+    Mod = ?STATE_MOD(CacheName),
+    apply(Mod, config, []).
 
 get_data(Key, Default, _S=#cache_state{data_store=DS,
                                        expire_store=ES}) ->

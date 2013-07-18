@@ -3,7 +3,7 @@
   {description, "ETS based cache."},
   {vsn, "1.0.0"},
   {registered, []},
-  {modules, [etsachet]},
+  {modules, [etsachet,etsachet_gen_config]},
   {applications, [
                   kernel,
                   stdlib
