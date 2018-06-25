@@ -6,7 +6,6 @@
 %%% Created :  1 Jul 2013 by Vladimir G. Sekissov <eryx67@gmail.com>
 
 -module(etsachet).
--compile([{parse_transform, lager_transform}]).
 
 -behaviour(gen_server).
 
@@ -20,6 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(DEFAULT_TTL, 356000 * 86400).
 -define(STATE_MOD(CN), list_to_atom(atom_to_list(CN) ++ "_config$")).
@@ -144,7 +144,7 @@ handle_cast(_Msg, State) ->
 handle_info({'DOWN', _, _, Pid, normal}, S=#state{cleaner_pid=Pid}) ->
     {noreply, S#state{cleaner_pid=undefined}};
 handle_info({'DOWN', _, _, Pid, Reason}, S=#state{cleaner_pid=Pid}) ->
-    lager:error("abnormal worker termination, reason ~w", [Reason]),
+    ?LOG_ERROR("abnormal worker termination, reason ~w", [Reason]),
     {noreply, S#state{cleaner_pid=undefined}};
 handle_info(_Msg, State) ->
     {noreply, State}.
@@ -249,11 +249,10 @@ expire_at(TTL) when is_integer(TTL) ->
     timestamp_add(timestamp(), TTL).
 
 timestamp() ->
-    now().
+    erlang:monotonic_time(nanosecond).
 
 timestamp_add(Time, AddSec) ->
-    {Mega, Sec, Micro} = Time,
-    {Mega + AddSec div 1000000, Sec + AddSec rem 1000000, Micro}.
+    Time + AddSec * 1000000000.
 
 %%--------------------------
 %%Tests
@@ -386,10 +385,11 @@ lru_put_get_speed_test() ->
 lru_ttl_put_get_speed_test() ->
     ?debugMsg("running LRU TTL put-get speed test"),
     etsachet:start_link(lru_ttl_cache, 1000),
+    Cnt = lists:seq(1, ?SPEED_TEST_OP_COUNT),
     LruTtlPutGet =
         fun() ->
                 lists:foreach(fun(I)-> etsachet:put_ttl(lru_ttl_cache, I, I, I rem 10), etsachet:get(lru_ttl_cache, I) end,
-                              lists:seq(1, ?SPEED_TEST_OP_COUNT))
+                              Cnt)
         end,
     ?debugTime(integer_to_list(?SPEED_TEST_OP_COUNT) ++ " LRU TTL put-get", LruTtlPutGet()),
     ok = stop(lru_ttl_cache),
