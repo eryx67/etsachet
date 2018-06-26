@@ -159,12 +159,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% internal functions
 spawn_cleaner(#cache_state{data_store=DS, expire_store=ES}) ->
     CleanF = fun () ->
-                     {Recs, _} = ets:select(ES, ets:fun2ms(fun (Rec) -> Rec end),
+                     {Keys, _} = ets:select(ES, ets:fun2ms(fun ({Key, _}) -> Key end),
                                             ?EXPIRE_SIZE_THRESHOLD),
-                     lists:foreach(fun ({ExpKey, DataKey}) ->
+                     lists:foreach(fun (ExpKey={_, DataKey}) ->
                                            ets:delete(ES, ExpKey),
                                            ets:delete(DS, DataKey)
-                                   end, Recs)
+                                   end, Keys)
              end,
     {Pid, _} = spawn_monitor(CleanF),
     Pid.
@@ -178,7 +178,7 @@ get_data(Key, Default, _S=#cache_state{data_store=DS,
     Now = timestamp(),
     case ets:lookup(DS, Key) of
         [{_, _, ExpAt}] when ExpAt < Now ->
-            ets:delete(ES, ExpAt),
+            ets:delete(ES, {ExpAt, Key}),
             ets:delete(DS, Key),
             Default;
         [{_, Val, _}] ->
@@ -196,7 +196,7 @@ put_data(Key, Value, ExpireAt, S=#cache_state{name=Name,
         false ->
             try
                 OldExp = ets:lookup_element(DS, Key, 3),
-                ets:delete(ES, OldExp),
+                ets:delete(ES, {OldExp, Key}),
                 ets:insert(DS, Data)
             catch
                 exit:badarg ->
@@ -215,14 +215,14 @@ put_data(Key, Value, ExpireAt, S=#cache_state{name=Name,
                     end
             end
     end,
-    ets:insert(ES, {ExpireAt, Key}),
+    ets:insert(ES, {{ExpireAt, Key}, true}),
     S.
 
 del_data(Key, _S=#cache_state{data_store=DS,
                               expire_store=ES}) ->
     try
         OldExp = ets:lookup_element(DS, Key, 3),
-        ets:delete(ES, OldExp),
+        ets:delete(ES, {OldExp, Key}),
         ets:delete(DS, Key)
     catch
         exit:badarg ->
