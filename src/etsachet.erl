@@ -122,7 +122,12 @@ init({Name, MaxSize}) ->
 
     {ok, #state{cache_state=CacheState}}.
 
-handle_call({expire_size}, _From, S=#state{cleaner_pid=undefined, cache_state=CS}) ->
+handle_call({cache_state}, _From, State=#state{cache_state=CS}) ->
+    {reply, {ok, CS}, State};
+handle_call(_Msg, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({expire_size}, S=#state{cleaner_pid=undefined, cache_state=CS}) ->
     #cache_state{max_size=MS} = CS,
     DS = data_size(CS),
     S1 = if (DS - ?EXPIRE_SIZE_THRESHOLD) >= MS ->
@@ -130,12 +135,7 @@ handle_call({expire_size}, _From, S=#state{cleaner_pid=undefined, cache_state=CS
             true ->
                  S
          end,
-    {reply, ok, S1};
-handle_call({cache_state}, _From, State=#state{cache_state=CS}) ->
-    {reply, {ok, CS}, State};
-handle_call(_Msg, _From, State) ->
-    {reply, ok, State}.
-
+    {noreply, S1};
 handle_cast(stop, State) ->
     {stop, normal, State};
 handle_cast(_Msg, State) ->
@@ -209,7 +209,7 @@ put_data(Key, Value, ExpireAt, S=#cache_state{name=Name,
                 _ ->
                     DSize = data_size(S),
                     if (DSize - ?EXPIRE_SIZE_THRESHOLD) >= MS ->
-                            gen_server:call(Name, {expire_size});
+                            gen_server:cast(Name, {expire_size});
                        true ->
                             ok
                     end
