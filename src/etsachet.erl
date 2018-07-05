@@ -9,7 +9,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, start_link/2, stop/1,
+-export([start_link/1, start_link/3, stop/1,
          put/3, put_ttl/4,
          get/2, get/3,
          remove/2,
@@ -21,7 +21,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("kernel/include/logger.hrl").
 
--define(DEFAULT_TTL, 356000 * 86400).
+-define(DEFAULT_TTL, 10 * 356000 * 86400).
 -define(STATE_MOD(CN), list_to_atom(atom_to_list(CN) ++ "_config$")).
 
 -ifdef(TEST).
@@ -30,7 +30,12 @@
 -define(EXPIRE_SIZE_THRESHOLD, 1000).
 -endif.
 
--record(cache_state, {name, data_store, expire_store, max_size}).
+-record(cache_state, {name :: atom(),
+                      data_store :: atom(),
+                      expire_store :: atom(),
+                      max_size :: non_neg_integer(),
+                      default_ttl = ?DEFAULT_TTL
+                     }).
 -record(state, {cache_state, cleaner_pid}).
 
 -type undefined() :: 'undefined'.
@@ -38,14 +43,20 @@
 %% @doc Start a cache with no maximum size.
 -spec start_link(atom()) -> {ok, pid()} | ignore | {error, term()}.
 start_link(CacheName) when is_atom(CacheName) ->
-    start_link(CacheName, undefined).
+    start_link(CacheName, undefined, undefined).
 
 %% @doc Start a cache with a defined maximum size.
--spec start_link(atom(), integer()) -> {ok, pid()} | ignore | {error, term()}.
-start_link(CacheName, MaxSize) when is_atom(CacheName)
-                                    andalso (MaxSize =:= undefined
-                                             orelse is_integer(MaxSize) andalso MaxSize > 0) ->
-    gen_server:start_link({local, CacheName}, ?MODULE, {CacheName, MaxSize}, []).
+-spec start_link(CacheName, MaxSize, DefaultTTL) -> Result when
+      CacheName :: atom(),
+      MaxSize :: non_neg_integer() | undefined,
+      DefaultTTL :: non_neg_integer() | undefined,
+      Result :: {ok, pid()} | ignore | {error, term()}.
+start_link(CacheName, MaxSize, DefaultTTL) when is_atom(CacheName)
+                                                andalso (MaxSize =:= undefined
+                                                         orelse is_integer(MaxSize) andalso MaxSize > 0)
+                                                andalso (DefaultTTL =:= undefined
+                                                         orelse is_integer(DefaultTTL) andalso DefaultTTL > 0)->
+    gen_server:start_link({local, CacheName}, ?MODULE, {CacheName, MaxSize, DefaultTTL}, []).
 
 %% @doc Stop a cache.
 -spec stop(atom()) -> ok.
@@ -61,8 +72,8 @@ put(CacheName, Key, Value) when is_atom(CacheName) ->
 -spec put_ttl(atom(), term(), term(), integer() | undefined()) -> ok.
 put_ttl(CacheName, Key, Value, TTL) when is_atom(CacheName),
                                          (TTL == undefined orelse is_integer(TTL)) ->
-    State = find_state(CacheName),
-    put_data(Key, Value, expire_at(TTL), State),
+    State = #cache_state{default_ttl = DefTTL} = find_state(CacheName),
+    put_data(Key, Value, expire_at(TTL, DefTTL), State),
     ok.
 
 %% @doc Get a value, returning undefined if not found.
@@ -101,7 +112,7 @@ reset(CacheName) when is_atom(CacheName) ->
     ok.
 
 %% gen_server callbacks
-init({Name, MaxSize}) ->
+init({Name, MaxSize, DefaultTTL}) ->
     DataTbl = data_table(Name),
     ExpTbl = expire_table(Name),
     ets:new(DataTbl, [set, named_table, public,
@@ -109,8 +120,13 @@ init({Name, MaxSize}) ->
                       {write_concurrency, true}]),
     ets:new(ExpTbl, [ordered_set, named_table, public]),
 
-    CacheState = #cache_state{name=Name, data_store=DataTbl, expire_store=ExpTbl,
-                              max_size=MaxSize},
+    CacheState = #cache_state{name=Name,
+                              data_store=DataTbl, expire_store=ExpTbl,
+                              max_size=MaxSize,
+                              default_ttl = if (DefaultTTL == undefined) -> ?DEFAULT_TTL;
+                                               true -> DefaultTTL
+                                            end
+                             },
     ConfMod = ?STATE_MOD(Name),
     {ok, ConfMod, Bin} = etsachet_gen_config:generate(ConfMod, CacheState),
     case code:which(hipe) of
@@ -243,9 +259,9 @@ data_table(Name) ->
 expire_table(Name) ->
     list_to_atom(atom_to_list(Name) ++ "_clock").
 
-expire_at(undefined) ->
-    expire_at(?DEFAULT_TTL);
-expire_at(TTL) when is_integer(TTL) ->
+expire_at(undefined, DefaultTTL) ->
+    timestamp_add(timestamp(), DefaultTTL);
+expire_at(TTL, _D) when is_integer(TTL) ->
     timestamp_add(timestamp(), TTL).
 
 timestamp() ->
@@ -322,7 +338,7 @@ default_put_get_test() ->
 lru_cache_test() ->
     ?debugMsg("running lru cache tests"),
 
-    {ok, _Pid} = start_link(lru_cache, 2),
+    {ok, _Pid} = start_link(lru_cache, 2, undefined),
     ?assertEqual(ok, put(lru_cache, my_key1, "my_val1")),
     ?assertEqual(1, cache_size(lru_cache)),
     ?assertEqual(ok, put(lru_cache, my_key2, "my_val2")),
@@ -373,7 +389,7 @@ ttl_put_get_speed_test() ->
 
 lru_put_get_speed_test() ->
     ?debugMsg("running LRU put-get speed test"),
-    etsachet:start_link(lru_cache, 1000),
+    etsachet:start_link(lru_cache, 1000, undefined),
     LruPutGet =
         fun() ->
                 lists:foreach(fun(I)-> etsachet:put(lru_cache, I, I), etsachet:get(lru_cache, I) end,
@@ -384,7 +400,7 @@ lru_put_get_speed_test() ->
 
 lru_ttl_put_get_speed_test() ->
     ?debugMsg("running LRU TTL put-get speed test"),
-    etsachet:start_link(lru_ttl_cache, 1000),
+    etsachet:start_link(lru_ttl_cache, 1000, undefined),
     Cnt = lists:seq(1, ?SPEED_TEST_OP_COUNT),
     LruTtlPutGet =
         fun() ->
